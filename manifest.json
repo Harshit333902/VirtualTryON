@@ -1,0 +1,32 @@
+{
+"update_url": "https://clients2.google.com/service/update2/crx",
+
+  "manifest_version": 3,
+  "name": "Try Clothes Virtually with Free AI ❤️",
+  "version": "3",
+  "description": "Try clothes ",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": [
+    "https://kwai-kolors-kolors-virtual-try-on.hf.space/*",
+    "https://api.openai.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "logo.png",
+      "48": "logo.png",
+      "128": "logo.png"
+    }
+  },
+  "icons": {
+    "16": "logo.png",
+    "48": "logo.png",
+    "128": "logo.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"]
+    }
+  ]
+}
