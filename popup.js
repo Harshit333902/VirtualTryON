@@ -5,8 +5,19 @@ document.addEventListener('DOMContentLoaded', function () {
   const loadingMessage = document.getElementById('loadingMessage');
   const personImageInput = document.getElementById('personImage');
   const cachedImagesDiv = document.getElementById('cachedImages');
+  const productImagesDiv = document.getElementById('productImages');
+  const productTitle = document.getElementById('productTitle');
 
   let selectedImageUrl = null;
+  let selectedProductImageUrl = null;
+
+  function updateTryOnButton() {
+    if ((selectedImageUrl || personImageInput.files.length > 0) && selectedProductImageUrl) {
+      tryOnButton.disabled = false;
+    } else {
+      tryOnButton.disabled = true;
+    }
+  }
 
   // Load and display cached images
   loadCachedImages();
@@ -21,6 +32,46 @@ document.addEventListener('DOMContentLoaded', function () {
   uploadNewImage.setAttribute('for', 'personImage');
   cachedImagesDiv.appendChild(uploadNewImage);
 
+  chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+    chrome.scripting.executeScript(
+      {
+        target: { tabId: tabs[0].id },
+        files: ['content.js'],
+      },
+      () => {
+        chrome.tabs.sendMessage(
+          tabs[0].id,
+          { action: 'getProductImages' },
+          function (response) {
+            if (response && response.productImages && response.productImages.length > 0) {
+              productTitle.style.display = 'block';
+              response.productImages.forEach((imgUrl, index) => {
+                const img = document.createElement('img');
+                img.src = imgUrl;
+                img.classList.add('product-image');
+                if (index === 0) {
+                  img.classList.add('selected');
+                  selectedProductImageUrl = imgUrl;
+                  updateTryOnButton();
+                }
+                img.addEventListener('click', () => {
+                  document.querySelectorAll('.product-image').forEach(el => el.classList.remove('selected'));
+                  img.classList.add('selected');
+                  selectedProductImageUrl = imgUrl;
+                  updateTryOnButton();
+                });
+                productImagesDiv.appendChild(img);
+              });
+            } else {
+              productTitle.style.display = 'block';
+              productTitle.textContent = 'No clothing images found on this page.';
+            }
+          }
+        );
+      }
+    );
+  });
+
   personImageInput.addEventListener('change', function () {
     if (this.files.length > 0) {
       const file = this.files[0];
@@ -32,36 +83,41 @@ document.addEventListener('DOMContentLoaded', function () {
         `;
       };
       reader.readAsDataURL(file);
-      tryOnButton.disabled = false;
       selectedImageUrl = null;
+      updateTryOnButton();
       // Deselect any previously selected cached image
       document
         .querySelectorAll('.cached-image')
         .forEach((img) => img.classList.remove('selected'));
     } else {
       resetUploadButton();
-      tryOnButton.disabled = !selectedImageUrl;
+      updateTryOnButton();
     }
   });
 
   tryOnButton.addEventListener('click', function () {
+    if (!selectedProductImageUrl) {
+      alert('Please select a clothing item first.');
+      return;
+    }
+
     if (selectedImageUrl) {
-      startVirtualTryOn(selectedImageUrl);
+      startVirtualTryOn(selectedImageUrl, selectedProductImageUrl);
     } else if (personImageInput.files.length > 0) {
       const personImageFile = personImageInput.files[0];
       uploadImgToHf(personImageFile)
         .then((personImageUrl) => {
           const newCachedImage = cacheImage(personImageUrl);
           selectCachedImage(newCachedImage, personImageUrl);
-          startVirtualTryOn(personImageUrl);
+          startVirtualTryOn(personImageUrl, selectedProductImageUrl);
           resetUploadButton();
         })
         .catch((error) => {
           showError('Error: ' + error.message);
-          console.error('Error uploading image to Cloudinary:', error);
+          console.error('Error uploading image to HF:', error);
         });
     } else {
-      alert('Please select an image or upload a new one.');
+      alert('Please select an image or upload a new one, and choose a clothing item.');
     }
   });
 
@@ -69,40 +125,24 @@ document.addEventListener('DOMContentLoaded', function () {
     uploadNewImage.innerHTML = '<span style="font-size: 24px;">+</span>';
   }
 
-  function startVirtualTryOn(personImageUrl) {
+  function startVirtualTryOn(personImageUrl, productImageUrl) {
     loader.style.display = 'block';
     loadingMessage.style.display = 'block';
     resultDiv.textContent = '';
     tryOnButton.disabled = true;
 
-    chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
-      const currentPageUrl = tabs[0].url; // Get the current page URL
-      chrome.scripting.executeScript(
-        {
-          target: { tabId: tabs[0].id },
-          files: ['content.js'],
-        },
-        () => {
-          chrome.tabs.sendMessage(
-            tabs[0].id,
-            { action: 'getProductImage' },
-            async function (response) {
-              if (response && response.productImageUrl) {
-                const productHFImageUrl = await uploadProductImg(
-                  response.productImageUrl
-                );
-                performVirtualTryOn(
-                  personImageUrl,
-                  productHFImageUrl,
-                  currentPageUrl
-                );
-              } else {
-                showError("Couldn't find product image.");
-              }
-            }
-          );
-        }
-      );
+    chrome.tabs.query({ active: true, currentWindow: true }, async function (tabs) {
+      const currentPageUrl = tabs[0].url; 
+      try {
+        const productHFImageUrl = await uploadProductImg(productImageUrl);
+        performVirtualTryOn(
+          personImageUrl,
+          productHFImageUrl,
+          currentPageUrl
+        );
+      } catch (e) {
+        showError("Failed to fetch or upload product image: " + e.message);
+      }
     });
   }
 
@@ -158,8 +198,8 @@ document.addEventListener('DOMContentLoaded', function () {
     // Reset selection if the deleted image was selected
     if (selectedImageUrl === url) {
       selectedImageUrl = null;
-      tryOnButton.disabled = true;
     }
+    updateTryOnButton();
   }
 
   function selectCachedImage(imgElement, url) {
@@ -168,7 +208,7 @@ document.addEventListener('DOMContentLoaded', function () {
       .forEach((img) => img.classList.remove('selected'));
     imgElement.classList.add('selected');
     selectedImageUrl = url;
-    tryOnButton.disabled = false;
+    updateTryOnButton();
     personImageInput.value = '';
     resetUploadButton();
   }
@@ -348,11 +388,40 @@ document.addEventListener('DOMContentLoaded', function () {
   function displayResult(resultUrl) {
     loader.style.display = 'none';
     loadingMessage.style.display = 'none';
+    
     const img = document.createElement('img');
     img.src = resultUrl;
     img.style.maxWidth = '100%';
+    
+    const downloadBtn = document.createElement('button');
+    downloadBtn.textContent = 'Download Try-On';
+    downloadBtn.className = 'download-btn';
+    downloadBtn.onclick = async () => {
+      downloadBtn.textContent = 'Downloading...';
+      try {
+        const response = await fetch(resultUrl);
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = 'virtual-try-on-result.jpg';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        
+        URL.revokeObjectURL(blobUrl);
+        downloadBtn.textContent = 'Downloaded';
+      } catch (err) {
+        console.error('Download failed:', err);
+        downloadBtn.textContent = 'Download Failed';
+      }
+      setTimeout(() => downloadBtn.textContent = 'Download Try-On', 3000);
+    };
+
     resultDiv.innerHTML = '';
     resultDiv.appendChild(img);
+    resultDiv.appendChild(downloadBtn);
   }
 
   // chrome.storage.local.clear(function () {

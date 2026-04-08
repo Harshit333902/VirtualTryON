@@ -1,24 +1,28 @@
 chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
-  if (request.action === 'getProductImage') {
-    getProductImageUrl().then(sendResponse);
+  if (request.action === 'getProductImages') {
+    getProductImages().then(sendResponse);
     return true; // Indicates we will send a response asynchronously
   }
 });
 
-async function getProductImageUrl() {
-  let productImageUrl = document.querySelector(
-    'meta[property="og:image"]'
-  )?.content;
+async function getProductImages() {
+  let images = [];
 
-  if (!productImageUrl) {
-    productImageUrl = document.querySelector(
-      'meta[name="twitter:image"]'
-    )?.content;
+  const ogImage = document.querySelector('meta[property="og:image"]')?.content;
+  if (ogImage) images.push(ogImage);
+
+  const twImage = document.querySelector('meta[name="twitter:image"]')?.content;
+  if (twImage) images.push(twImage);
+
+  const imgElements = document.querySelectorAll('img');
+  for (const img of imgElements) {
+    if ((img.width > 150 || img.naturalWidth > 150) && img.src) {
+      images.push(img.src);
+    }
   }
 
-  if (!productImageUrl) {
-    return { productImageUrl: null };
-  }
+  // Ensure unique URLs
+  const uniqueImages = [...new Set(images)];
 
-  return { productImageUrl };
+  return { productImages: uniqueImages };
 }

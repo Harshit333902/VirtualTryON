@@ -43,7 +43,8 @@ function getMimeTypeFromUrl(url) {
 }
 
 function uploadImgToHf(file) {
-  loadingMessage.textContent = 'Loading images...';
+  const loadingMessage = document.getElementById('loadingMessage');
+  if (loadingMessage) loadingMessage.textContent = 'Loading images...';
 
   const formData = new FormData();
   formData.append('files', file);
@@ -56,20 +57,28 @@ function uploadImgToHf(file) {
       body: formData,
     }
   )
-    .then((response) => response.json())
+    .then((response) => {
+      if (!response.ok) throw new Error('Upload failed with status ' + response.status);
+      return response.json();
+    })
     .then((data) => {
       return data[0];
     })
     .catch((error) => {
       console.error('Error:', error);
+      throw error;
     });
 }
 
 async function uploadProductImg(imageUrl) {
   return fetch(imageUrl)
-    .then((response) => response.blob())
+    .then((response) => {
+      if (!response.ok) throw new Error('Failed to fetch image');
+      return response.blob();
+    })
     .then((blob) => {
-      const file = new File([blob], imageUrl.split('/').pop().split('?')[0], {
+      const fileName = imageUrl.split('/').pop().split('?')[0] || 'image.jpg';
+      const file = new File([blob], fileName, {
         type: getMimeTypeFromUrl(imageUrl),
       });
 
@@ -77,5 +86,6 @@ async function uploadProductImg(imageUrl) {
     })
     .catch((error) => {
       console.error('Error:', error);
+      throw error;
     });
 }
